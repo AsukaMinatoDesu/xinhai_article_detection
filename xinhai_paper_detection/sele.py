@@ -1,16 +1,33 @@
 import time
+import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.keys import Keys
 from urllib.parse import quote
+from tqdm import tqdm
 
-# 设置Chrome选项
-options = Options()
-options.headless = True  # 无头模式
-# 创建Chrome WebDriver
-driver = webdriver.Chrome(service=Service('./chromedriver.exe'), options=options)
+# 配置文件路径定义
+CONFIG_PATH = './config'
+ARTICLE_PATH = './article.txt'
+OUTPUT_HTML = './plagiarism_results.html'
+
+def read_config(file_path):
+    # 从配置文件中读取参数
+    config = {}
+    with open(file_path, 'r', encoding='utf-8') as file:
+        for line in file:
+            key, value = line.strip().split('=', 1)
+            if ',' in value:
+                config[key] = value.split(',')
+            else:
+                config[key] = int(value) if value.isdigit() else value
+    return config
+
+def read_article(file_path):
+    # 从文本文件中读取文章
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return file.read()
 
 def search_google(driver, query):
     """
@@ -51,8 +68,9 @@ def check_plagiarism(text_fragments, threshold_length = 30):
     :param threshold_length: 文本长度阈值，跳过低于阈值的文本
     :return: None
     """
-
-    for fragment in text_fragments:
+    plagiarism_results = []
+    for fragment in tqdm(text_fragments, desc="Checking Plagiarism Progress"):
+        # print(f"Progress: {index}/{total_fragments}")
         # 去除首尾空格，检测非空
         if not fragment.strip():
             continue
@@ -61,17 +79,47 @@ def check_plagiarism(text_fragments, threshold_length = 30):
         if len(fragment) < threshold_length:
             continue
 
-        results = search_google(driver, fragment)
+        search_results = search_google(driver, fragment)
 
         # 比较总高亮文本长度与原文本长度
-        for total_highlighted_length in results:
+        for total_highlighted_length in search_results:
             if total_highlighted_length > threshold_length:
-                print(f"Fragment: {fragment}")
-                print(f"URL: https://www.google.com/search?q={quote(fragment)}\n")
+                plagiarism_results.append({
+                    'fragment': fragment,
+                    'url': f"https://www.google.com/search?q={quote(fragment)}"
+                })
+                # print(f"Fragment: {fragment}")
+                # print(f"URL: https://www.google.com/search?q={quote(fragment)}\n")
                 break
 
-    return 0
+    return plagiarism_results
 
+def write_results_to_html(results, file_path):
+    html_content = """
+    <html>
+    <head>
+        <title>Plagiarism Check Results</title>
+    </head>
+    <body>
+        <h1>Plagiarism Check Results</h1>
+        <ul>
+    """
+    for result in results:
+        html_content += f"""
+        <li>
+            <p>Fragment: {result['fragment']}</p>
+            <p>URL: <a href="{result['url']}" target="_blank">{result['url']}</a></p>
+        </li>
+        <hr>
+        """
+    html_content += """
+        </ul>
+    </body>
+    </html>
+    """
+
+    with open(file_path, 'w', encoding='utf-8') as file:
+        file.write(html_content)
 
 def split_text(input_text, delimiters=None, max_length=2000, unwanted_symbols=None):
     """
@@ -83,19 +131,10 @@ def split_text(input_text, delimiters=None, max_length=2000, unwanted_symbols=No
     :param unwanted_symbols: 需要去除的干扰符号列表
     :return: 分割后的片段列表
     """
-    import re
-
-    # 默认不需要的干扰符号
-    if unwanted_symbols is None:
-        unwanted_symbols = ['“', '”', '「', '」', '『', '』', '"', "'", '‘', '’', '\n']
 
     # 去除不需要的干扰符号
     unwanted_pattern = '[' + re.escape(''.join(unwanted_symbols)) + ']'
     cleaned_text = re.sub(unwanted_pattern, '', input_text)
-
-    # 如果没有传入自定义的分隔符，则使用默认的中文标点符号
-    if delimiters is None:
-        delimiters = ['。', '？', '！', '……']
 
     # 将用户提供的标点符号列表转为正则表达式中的字符类
     delimiter_pattern = '|'.join(map(re.escape, delimiters))
@@ -124,21 +163,39 @@ def split_text(input_text, delimiters=None, max_length=2000, unwanted_symbols=No
 
     return final_fragments
 
-print("输入文章（输入endinput结束）：")
-lines = []
-while True:
-    line = input()
-    if line == "endinput":
-        break
-    lines.append(line)
+# 读取配置
+config = read_config(CONFIG_PATH)
 
-article = "\n".join(lines)
+# 文章文本读取
+article = read_article(ARTICLE_PATH)
+
+
+# 设置Chrome选项
+options = Options()
+options.add_argument("--headless")  # 无头模式
+# 创建Chrome WebDriver
+driver = webdriver.Chrome(service=Service('./chromedriver.exe'), options=options)
+
+
+# 输入区读取
+# print("输入文章（输入endinput结束）：")
+# lines = []
+# while True:
+#     line = input()
+#     if line == "endinput":
+#         break
+#     lines.append(line)
+#
+# article = "\n".join(lines)
+
 fragments = split_text(article,
-                       unwanted_symbols=['“', '”', '「', '」', '『', '』', '"', "'", '‘', '’', '\n'],
-                       delimiters=['。', '？', '！'],
-                       max_length=64)
+                       unwanted_symbols=config.get('unwanted_symbols'),
+                       delimiters=config.get('delimiters'),
+                       max_length=config.get('max_length'))
 
-plagiarism_results = check_plagiarism(fragments, threshold_length=20)
+plagiarism_results = check_plagiarism(fragments, threshold_length=config.get('threshold_length'))
 
+# 写入 HTML 文件
+write_results_to_html(plagiarism_results, OUTPUT_HTML)
 
 driver.quit()
