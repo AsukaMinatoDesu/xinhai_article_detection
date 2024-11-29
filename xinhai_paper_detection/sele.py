@@ -51,7 +51,6 @@ def check_plagiarism(text_fragments, threshold_length = 30):
     :param threshold_length: 文本长度阈值，跳过低于阈值的文本
     :return: None
     """
-    plagiarism_results = []
 
     for fragment in text_fragments:
         # 去除首尾空格，检测非空
