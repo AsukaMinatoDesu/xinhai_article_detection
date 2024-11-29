@@ -1,0 +1,4 @@
+unwanted_symbols=“,”,“「,”」,”『,’』,'"',''','‘,’’,'\n'
+delimiters=。,？,！,……
+max_length=64
+threshold_length=20
